@@ -1,15 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 import { 
   Plus, 
-  Search, 
   Flame, 
   Utensils, 
   TrendingUp, 
-  Calendar,
   X,
-  ChevronRight
+  Scale
 } from 'lucide-react';
 import {
   LineChart,
@@ -18,239 +17,268 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
-  AreaChart,
-  Area
+  ResponsiveContainer
 } from 'recharts';
 
-// Mock data for the chart
-const data = [
-  { name: 'Mon', calories: 2100, weight: 75.2 },
-  { name: 'Tue', calories: 1850, weight: 75.0 },
-  { name: 'Wed', calories: 2300, weight: 74.9 },
-  { name: 'Thu', calories: 1900, weight: 74.8 },
-  { name: 'Fri', calories: 2100, weight: 74.6 },
-  { name: 'Sat', calories: 2500, weight: 74.7 },
-  { name: 'Sun', calories: 1800, weight: 74.5 },
-];
+// 型定義
+type DietLog = {
+  id: string;
+  created_at: string;
+  tag: string;
+  content: string | null;
+  calories: number | null;
+  weight: number | null;
+};
 
-const PRESET_TAGS = [
-  { name: 'Chicken Breast', cals: 165, color: 'bg-blue-500' },
-  { name: 'Brown Rice', cals: 215, color: 'bg-orange-500' },
-  { name: 'Avocado', cals: 160, color: 'bg-green-500' },
-  { name: 'Protein Shake', cals: 120, color: 'bg-purple-500' },
-  { name: 'Salmon', cals: 208, color: 'bg-red-500' },
-  { name: 'Salad', cals: 50, color: 'bg-emerald-500' },
-];
+const TAGS = ['体重', '朝食', '昼食', '夕食', '間食', '運動'] as const;
+type Tag = typeof TAGS[number];
 
-export default function DietProDashboard() {
-  const [selectedTags, setSelectedTags] = useState<any[]>([]);
-  const [inputValue, setInputValue] = useState('');
+export default function DietApp() {
+  const [logs, setLogs] = useState<DietLog[]>([]);
+  const [selectedTag, setSelectedTag] = useState<Tag>('昼食');
+  const [weight, setWeight] = useState('');
+  const [content, setContent] = useState('');
+  const [calories, setCalories] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const addTag = (tag: any) => {
-    setSelectedTags([...selectedTags, { ...tag, id: Date.now() }]);
+  // データの取得
+  const fetchLogs = async () => {
+    const { data, error } = await supabase
+      .from('diet_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) console.error('Error fetching logs:', error);
+    else setLogs(data || []);
   };
 
-  const removeTag = (id: number) => {
-    setSelectedTags(selectedTags.filter(t => t.id !== id));
+  useEffect(() => {
+    fetchLogs();
+  }, []);
+
+  // 保存処理
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const payload = {
+      tag: selectedTag,
+      weight: selectedTag === '体重' ? parseFloat(weight) : null,
+      content: selectedTag !== '体重' ? content : null,
+      calories: selectedTag !== '体重' ? parseInt(calories) : null,
+    };
+
+    const { error } = await supabase.from('diet_logs').insert([payload]);
+
+    if (error) {
+      alert('エラーが発生しました: ' + error.message);
+    } else {
+      setWeight('');
+      setContent('');
+      setCalories('');
+      fetchLogs();
+    }
+    setLoading(false);
   };
 
-  const totalCals = selectedTags.reduce((acc, curr) => acc + curr.cals, 0);
+  // 本日の集計
+  const today = new Date().toLocaleDateString();
+  const todayLogs = logs.filter(l => new Date(l.created_at).toLocaleDateString() === today);
+  
+  const intakeTotal = todayLogs
+    .filter(l => ['朝食', '昼食', '夕食', '間食'].includes(l.tag))
+    .reduce((acc, curr) => acc + (curr.calories || 0), 0);
+  
+  const burnTotal = todayLogs
+    .filter(l => l.tag === '運動')
+    .reduce((acc, curr) => acc + (curr.calories || 0), 0);
+
+  // グラフ用データ (直近10件の体重)
+  const chartData = logs
+    .filter(l => l.tag === '体重' && l.weight)
+    .slice(0, 10)
+    .reverse()
+    .map(l => ({
+      date: new Date(l.created_at).toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' }),
+      weight: l.weight
+    }));
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-8">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 md:p-8 font-sans">
+      <div className="max-w-4xl mx-auto space-y-8">
         
-        {/* Header */}
+        {/* ヘッダー */}
         <header className="flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-orange-400 to-rose-500 bg-clip-text text-transparent">
-              Instant Diet Pro
+              自分専用ダイエット管理
             </h1>
-            <p className="text-zinc-400">Welcome back, Keitaro</p>
+            <p className="text-zinc-400">今日も一歩ずつ進みましょう</p>
           </div>
           <div className="h-10 w-10 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center">
-            <span className="font-bold text-orange-400">K</span>
+            <Scale className="text-orange-400 w-6 h-6" />
           </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Main Input Section */}
+          {/* 左側：入力セクション */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
-              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                <Plus className="text-orange-500" /> Quick Log
+              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+                <Plus className="text-orange-500" /> クイック記録
               </h2>
               
-              <div className="relative mb-6">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 w-5 h-5" />
-                <input 
-                  type="text"
-                  placeholder="Search foods or type custom..."
-                  className="w-full bg-zinc-800 border-zinc-700 rounded-xl py-3 pl-10 pr-4 focus:ring-2 focus:ring-orange-500 outline-none transition-all"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                />
-              </div>
-
-              <div className="flex flex-wrap gap-2 mb-8">
-                {PRESET_TAGS.map(tag => (
+              {/* タグ選択ボタン */}
+              <div className="grid grid-cols-3 gap-2 mb-6">
+                {TAGS.map(tag => (
                   <button
-                    key={tag.name}
-                    onClick={() => addTag(tag)}
-                    className="px-4 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition-colors flex items-center gap-2 text-sm"
+                    key={tag}
+                    onClick={() => setSelectedTag(tag)}
+                    className={`py-3 rounded-xl font-bold transition-all text-sm ${
+                      selectedTag === tag 
+                        ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' 
+                        : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                    }`}
                   >
-                    <div className={`w-2 h-2 rounded-full ${tag.color}`} />
-                    {tag.name}
-                    <span className="text-zinc-500">+{tag.cals}</span>
+                    {tag}
                   </button>
                 ))}
               </div>
 
-              <div className="min-h-[100px] border-2 border-dashed border-zinc-800 rounded-xl p-4 flex flex-wrap gap-2 items-start">
-                {selectedTags.length === 0 ? (
-                  <p className="text-zinc-600 text-center w-full py-4 italic">No items added yet</p>
+              {/* フォーム */}
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {selectedTag === '体重' ? (
+                  <div className="space-y-2">
+                    <label className="text-xs text-zinc-500 uppercase tracking-widest">体重 (kg)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={weight}
+                      onChange={(e) => setWeight(e.target.value)}
+                      placeholder="0.0"
+                      className="w-full bg-zinc-800 border-none rounded-xl p-4 text-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                      required
+                    />
+                  </div>
                 ) : (
-                  selectedTags.map(tag => (
-                    <div 
-                      key={tag.id}
-                      className="flex items-center gap-2 bg-orange-500/10 text-orange-400 border border-orange-500/20 px-3 py-1.5 rounded-lg animate-in fade-in zoom-in duration-200"
-                    >
-                      <span className="text-sm font-medium">{tag.name}</span>
-                      <button onClick={() => removeTag(tag.id)}>
-                        <X className="w-4 h-4 hover:text-white transition-colors" />
-                      </button>
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-xs text-zinc-500 uppercase tracking-widest">内容</label>
+                      <input
+                        type="text"
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        placeholder={selectedTag === '運動' ? "何をした？" : "何を食べた？"}
+                        className="w-full bg-zinc-800 border-none rounded-xl p-4 text-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                        required
+                      />
                     </div>
-                  ))
+                    <div className="space-y-2">
+                      <label className="text-xs text-zinc-500 uppercase tracking-widest">カロリー (kcal)</label>
+                      <input
+                        type="number"
+                        value={calories}
+                        onChange={(e) => setCalories(e.target.value)}
+                        placeholder="0"
+                        className="w-full bg-zinc-800 border-none rounded-xl p-4 text-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                        required
+                      />
+                    </div>
+                  </>
                 )}
-              </div>
-
-              <button 
-                disabled={selectedTags.length === 0}
-                className="w-full mt-6 bg-orange-500 hover:bg-orange-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-orange-500/20"
-              >
-                Log {totalCals} Calories
-              </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-4 rounded-xl shadow-lg shadow-orange-500/20 transition-all mt-4"
+                >
+                  {loading ? '送信中...' : '記録を保存する'}
+                </button>
+              </form>
             </div>
 
-            {/* Chart Section */}
+            {/* 中央：グラフセクション */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
               <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-                <TrendingUp className="text-rose-500" /> Progress
+                <TrendingUp className="text-rose-500" /> 体重推移
               </h2>
               <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data}>
-                    <defs>
-                      <linearGradient id="colorCals" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                    <XAxis 
-                      dataKey="name" 
-                      stroke="#71717a" 
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis 
-                      stroke="#71717a" 
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
-                      itemStyle={{ color: '#f97316' }}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="calories" 
-                      stroke="#f97316" 
-                      strokeWidth={3}
-                      fillOpacity={1} 
-                      fill="url(#colorCals)" 
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                {chartData.length > 1 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                      <XAxis dataKey="date" stroke="#71717a" fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis hide domain={['dataMin - 1', 'dataMax + 1']} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
+                        itemStyle={{ color: '#f97316' }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="weight" 
+                        stroke="#f97316" 
+                        strokeWidth={4}
+                        dot={{ r: 4, fill: '#f97316', strokeWidth: 2, stroke: '#18181b' }}
+                        activeDot={{ r: 6 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-zinc-600 italic">
+                    体重を2回以上記録するとグラフが表示されます
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Right Sidebar - Summaries */}
+          {/* 右側：サマリーと履歴 */}
           <div className="space-y-6">
+            {/* 今日のサマリー */}
             <div className="bg-orange-500 rounded-2xl p-6 text-white shadow-xl shadow-orange-500/20">
               <div className="flex justify-between items-start mb-4">
                 <Flame className="w-8 h-8 opacity-80" />
-                <span className="bg-white/20 px-2 py-1 rounded text-xs font-bold uppercase tracking-wider">Today</span>
+                <span className="bg-white/20 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest">Today</span>
               </div>
-              <p className="text-orange-100 text-sm font-medium">Daily Calories</p>
-              <h3 className="text-4xl font-bold mt-1">1,850 <span className="text-xl font-normal opacity-70">/ 2,200</span></h3>
-              <div className="w-full bg-white/20 h-2 rounded-full mt-4 overflow-hidden">
-                <div className="bg-white h-full rounded-full w-[84%]" />
-              </div>
-            </div>
-
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
-              <h3 className="font-semibold mb-4 text-zinc-400 uppercase text-xs tracking-widest">Macro Breakdown</h3>
-              <div className="space-y-4">
+              <p className="text-orange-100 text-sm font-medium">今日の摂取カロリー</p>
+              <h3 className="text-4xl font-bold mt-1">{intakeTotal} <span className="text-xl font-normal opacity-70">kcal</span></h3>
+              <div className="mt-4 pt-4 border-t border-white/20 flex justify-between">
                 <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Protein</span>
-                    <span className="font-bold">142g</span>
-                  </div>
-                  <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-blue-500 h-full w-[70%]" />
-                  </div>
+                  <p className="text-orange-100 text-[10px] font-medium uppercase tracking-widest">消費</p>
+                  <p className="text-lg font-bold">{burnTotal} kcal</p>
                 </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Carbs</span>
-                    <span className="font-bold">185g</span>
-                  </div>
-                  <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-orange-500 h-full w-[55%]" />
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Fats</span>
-                    <span className="font-bold">62g</span>
-                  </div>
-                  <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-yellow-500 h-full w-[40%]" />
-                  </div>
+                <div className="text-right">
+                  <p className="text-orange-100 text-[10px] font-medium uppercase tracking-widest">差引</p>
+                  <p className="text-lg font-bold">{intakeTotal - burnTotal} kcal</p>
                 </div>
               </div>
             </div>
 
+            {/* 直近の履歴 */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
-              <h3 className="font-semibold mb-4 text-zinc-400 uppercase text-xs tracking-widest">Recent Activity</h3>
+              <h3 className="font-semibold mb-4 text-zinc-500 uppercase text-[10px] tracking-widest">最近の履歴</h3>
               <div className="space-y-4">
-                {[
-                  { time: '12:30 PM', meal: 'Lunch', cals: 650 },
-                  { time: '08:15 AM', meal: 'Breakfast', cals: 420 },
-                  { time: 'Yesterday', meal: 'Dinner', cals: 850 },
-                ].map((item, i) => (
-                  <div key={i} className="flex items-center justify-between group cursor-pointer">
+                {logs.slice(0, 5).map((log) => (
+                  <div key={log.id} className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center group-hover:bg-zinc-700 transition-colors">
-                        <Utensils className="w-5 h-5 text-zinc-400" />
+                      <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center">
+                        <Utensils className="w-5 h-5 text-zinc-500" />
                       </div>
                       <div>
-                        <p className="text-sm font-semibold">{item.meal}</p>
-                        <p className="text-xs text-zinc-500">{item.time}</p>
+                        <p className="text-sm font-semibold">{log.tag}</p>
+                        <p className="text-[10px] text-zinc-500">{new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-zinc-300">+{item.cals}</span>
-                      <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-zinc-300">
+                        {log.tag === '体重' ? `${log.weight}kg` : `${log.calories}kcal`}
+                      </p>
                     </div>
                   </div>
                 ))}
+                {logs.length === 0 && (
+                  <p className="text-center text-zinc-600 text-sm italic">履歴がありません</p>
+                )}
               </div>
             </div>
           </div>
